@@ -29,7 +29,7 @@ export function Publish({
   const handlePublish = async () => {
     setIsSubmitting(true)
     try {
-      const response = await fetch('http://localhost:8080/api/estacionamientos', {
+      const response = await fetch('https://estacionando-api.onrender.com/api/estacionamientos', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

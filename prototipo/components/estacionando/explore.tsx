@@ -27,7 +27,7 @@ export function Explore({ query, setQuery, filtered, liked, toggleLike, onSelect
 
   // Consulta GET hacia el backend en Spring Boot
   useEffect(() => {
-    fetch('http://localhost:8080/api/estacionamientos')
+    fetch('https://estacionando-api.onrender.com/api/estacionamientos')
       .then((res) => {
         if (!res.ok) throw new Error('Error al conectar con la API')
         return res.json()

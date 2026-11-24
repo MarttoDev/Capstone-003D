@@ -1,6 +1,8 @@
-export type View = 'explore' | 'bookings' | 'publish' | 'notifications' | 'profile'
+export type View = 'explore' | 'bookings' | 'publish' | 'notifications' | 'messages' | 'profile'
 
 export type AvailabilityWindow = { id: string; availabilityId: string; startTime: Date; endTime: Date }
+
+export type HostRating = { average: number; count: number }
 
 export type Spot = {
   id: string
@@ -13,6 +15,6 @@ export type Spot = {
   latitude: number | null
   longitude: number | null
   availableWindows: AvailabilityWindow[]
+  hostRating: HostRating | null
+  hostVerified: boolean
 }
-
-export type ScanState = 'idle' | 'scanning' | 'done'

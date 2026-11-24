@@ -7,6 +7,7 @@ import { deleteOrArchiveSpot } from '@/lib/parking-spots/delete-spot'
 import { notifyChange } from '@/lib/realtime/notify'
 import { notifyUser } from '@/lib/notifications/notify'
 import { reservationCancelledEmail } from '@/lib/notifications/templates'
+import { refundWebpayTransaction } from '@/lib/payments/transbank'
 
 export type AdminActionState = { error: string } | { success: true } | undefined
 
@@ -175,6 +176,23 @@ export async function cancelReservationAdminAction(_prevState: AdminActionState,
     },
   })
 
+  const payment = await prisma.payment.findUnique({ where: { reservationId } })
+  if (payment && payment.status === 'COMPLETED' && payment.providerPaymentId) {
+    const refundAmount = Math.round(payment.amount * 0.9)
+    try {
+      await refundWebpayTransaction(payment.providerPaymentId, refundAmount)
+      await prisma.payment.update({ where: { reservationId }, data: { status: 'PARTIALLY_REFUNDED', refundedAmount: refundAmount } })
+    } catch {
+      await notifyUser({
+        userId: renter.id,
+        reservationId,
+        type: 'RESERVATION_CANCELLED',
+        title: 'Tu reembolso no se procesó automáticamente',
+        message: `Hubo un problema al devolver el 90% de tu pago ($${refundAmount.toLocaleString('es-CL')}). Contáctanos para completarlo.`,
+      })
+    }
+  }
+
   return { success: true }
 }
 
@@ -260,5 +278,113 @@ export async function assignTaskAction(_prevState: AdminActionState, formData: F
 
   await prisma.task.update({ where: { id: taskId }, data: { assignedToId: userId } })
   await notifyChange('tasks')
+  return { success: true }
+}
+
+export async function removeReviewAdminAction(_prevState: AdminActionState, formData: FormData): Promise<AdminActionState> {
+  const caller = await getCurrentUser()
+  if (!caller || !caller.isAdmin) {
+    return { error: 'No tienes permisos de administrador' }
+  }
+
+  const reviewId = formData.get('reviewId')
+  if (typeof reviewId !== 'string' || !reviewId) {
+    return { error: 'Reseña inválida' }
+  }
+
+  const review = await prisma.review.findUnique({ where: { id: reviewId } })
+  if (!review) {
+    return { error: 'Reseña no encontrada' }
+  }
+
+  const removalReasonRaw = formData.get('removalReason')
+  const removalReason = typeof removalReasonRaw === 'string' && removalReasonRaw.trim() ? removalReasonRaw.trim() : null
+
+  await prisma.review.update({
+    where: { id: reviewId },
+    data: {
+      status: 'REMOVED',
+      removalReason,
+      appealMessage: null,
+      appealedAt: null,
+      moderatedAt: new Date(),
+    },
+  })
+
+  await notifyUser({
+    userId: review.authorId,
+    type: 'ADMIN_ALERT',
+    title: 'Tu reseña fue eliminada',
+    message: removalReason ? `Un administrador eliminó tu reseña. Motivo: ${removalReason}` : 'Un administrador eliminó tu reseña.',
+  })
+
+  await notifyChange('reviews')
+  return { success: true }
+}
+
+export async function restoreReviewAdminAction(_prevState: AdminActionState, formData: FormData): Promise<AdminActionState> {
+  const caller = await getCurrentUser()
+  if (!caller || !caller.isAdmin) {
+    return { error: 'No tienes permisos de administrador' }
+  }
+
+  const reviewId = formData.get('reviewId')
+  if (typeof reviewId !== 'string' || !reviewId) {
+    return { error: 'Reseña inválida' }
+  }
+
+  const review = await prisma.review.findUnique({ where: { id: reviewId } })
+  if (!review) {
+    return { error: 'Reseña no encontrada' }
+  }
+  if (review.status !== 'APPEALED') {
+    return { error: 'Esta reseña no tiene una apelación pendiente' }
+  }
+
+  await prisma.review.update({
+    where: { id: reviewId },
+    data: {
+      status: 'ACTIVE',
+      removalReason: null,
+      appealMessage: null,
+      appealedAt: null,
+      moderatedAt: new Date(),
+    },
+  })
+
+  await notifyChange('reviews')
+  return { success: true }
+}
+
+export async function rejectAppealAdminAction(_prevState: AdminActionState, formData: FormData): Promise<AdminActionState> {
+  const caller = await getCurrentUser()
+  if (!caller || !caller.isAdmin) {
+    return { error: 'No tienes permisos de administrador' }
+  }
+
+  const reviewId = formData.get('reviewId')
+  if (typeof reviewId !== 'string' || !reviewId) {
+    return { error: 'Reseña inválida' }
+  }
+
+  const review = await prisma.review.findUnique({ where: { id: reviewId } })
+  if (!review) {
+    return { error: 'Reseña no encontrada' }
+  }
+  if (review.status !== 'APPEALED') {
+    return { error: 'Esta reseña no tiene una apelación pendiente' }
+  }
+
+  await prisma.review.update({
+    where: { id: reviewId },
+    data: {
+      status: 'REMOVED',
+      appealMessage: null,
+      appealedAt: null,
+      moderatedAt: new Date(),
+    },
+  })
+
+  await notifyChange('reviews')
   return { success: true }
 }

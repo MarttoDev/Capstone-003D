@@ -12,10 +12,25 @@ export type CreateSpotState =
   | { success: true; spot: { title: string; area: string; price: number } }
   | undefined
 
+/** Hosting requires a verified identity (renting doesn't) — Didit KYC, checked at the two
+ *  points a spot becomes visible to the public: creation and re-publishing. */
+async function requireVerifiedHost(userId: string): Promise<string | null> {
+  const verification = await prisma.identityVerification.findUnique({ where: { userId } })
+  if (verification?.status !== 'VERIFIED') {
+    return 'Debes verificar tu identidad antes de publicar un espacio. Ve a tu perfil para completarla.'
+  }
+  return null
+}
+
 export async function createParkingSpotAction(_prevState: CreateSpotState, formData: FormData): Promise<CreateSpotState> {
   const user = await getCurrentUser()
   if (!user) {
     return { error: 'Debes iniciar sesión para publicar un espacio' }
+  }
+
+  const verificationError = await requireVerifiedHost(user.id)
+  if (verificationError) {
+    return { error: verificationError }
   }
 
   const parsed = createParkingSpotSchema.safeParse({
@@ -182,6 +197,13 @@ export async function setSpotPublishedAction(_prevState: OwnerActionState, formD
 
   if (spot.archivedAt) {
     return { error: 'Este espacio fue eliminado y no se puede volver a publicar' }
+  }
+
+  if (isPublished) {
+    const verificationError = await requireVerifiedHost(user.id)
+    if (verificationError) {
+      return { error: verificationError }
+    }
   }
 
   await prisma.parkingSpot.update({ where: { id: spotId }, data: { isPublished } })

@@ -3,12 +3,12 @@
 import { startTransition, useActionState, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Ban, Building2, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, GripVertical, ListChecks, LogOut, Plus, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react'
+import { Ban, Building2, CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, CreditCard, GripVertical, ListChecks, LogOut, Plus, ShieldCheck, Star, Trash2, UserPlus, Users } from 'lucide-react'
 import { BrandMark } from './brand-mark'
 import { ThemeToggle } from './theme-toggle'
 import { AdminConfirmModal } from './admin-confirm-modal'
 import { logoutAction } from '@/lib/auth/actions'
-import { promoteAdminAction, demoteAdminAction, deleteSpotAdminAction, deleteUserAdminAction, cancelReservationAdminAction, createTaskAction, moveTaskAction, assignTaskAction } from '@/lib/admin/actions'
+import { promoteAdminAction, demoteAdminAction, deleteSpotAdminAction, deleteUserAdminAction, cancelReservationAdminAction, createTaskAction, moveTaskAction, assignTaskAction, removeReviewAdminAction, restoreReviewAdminAction, rejectAppealAdminAction } from '@/lib/admin/actions'
 import { useRealtimeRefresh } from '@/hooks/use-realtime-refresh'
 import type { AdminDashboardData } from '@/lib/admin/queries'
 import type { SessionUser } from '@/lib/auth/types'
@@ -16,11 +16,12 @@ import type { SessionUser } from '@/lib/auth/types'
 const dateFormatter = new Intl.DateTimeFormat('es-CL', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'America/Santiago' })
 const dateTimeFormatter = new Intl.DateTimeFormat('es-CL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' })
 
-type Tab = 'resumen' | 'usuarios' | 'espacios' | 'reservas' | 'administradores' | 'tareas'
+type Tab = 'resumen' | 'usuarios' | 'espacios' | 'reservas' | 'administradores' | 'tareas' | 'reviews'
 
 export function AdminPanel({ user, data }: { user: SessionUser; data: AdminDashboardData }) {
   const [tab, setTab] = useState<Tab>('resumen')
-  useRealtimeRefresh(['parking_spots', 'reservations', 'users', 'tasks'])
+  useRealtimeRefresh(['parking_spots', 'reservations', 'users', 'tasks', 'reviews'])
+  const appealsCount = data.reviews.filter((review) => review.status === 'APPEALED').length
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -62,8 +63,12 @@ export function AdminPanel({ user, data }: { user: SessionUser; data: AdminDashb
             ['reservas', 'Reservas'],
             ['administradores', 'Administradores'],
             ['tareas', 'Tareas Pendientes'],
+            ['reviews', 'Reseñas'],
           ] as const).map(([key, label]) => (
-            <button key={key} onClick={() => setTab(key)} className={`rounded-full px-4 py-2 text-sm font-medium transition ${tab === key ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>{label}</button>
+            <button key={key} onClick={() => setTab(key)} className={`rounded-full px-4 py-2 text-sm font-medium transition ${tab === key ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+              {label}
+              {key === 'reviews' && appealsCount > 0 && <span className="ml-1.5 rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">{appealsCount}</span>}
+            </button>
           ))}
         </div>
 
@@ -74,6 +79,7 @@ export function AdminPanel({ user, data }: { user: SessionUser; data: AdminDashb
           {tab === 'reservas' && <ReservasTab reservations={data.activeReservations} />}
           {tab === 'administradores' && <AdministradoresTab users={data.users} currentUserId={user.id} />}
           {tab === 'tareas' && <TareasTab tasks={data.tasks} users={data.users} />}
+          {tab === 'reviews' && <ReviewsTab reviews={data.reviews} />}
         </div>
       </main>
     </div>
@@ -123,6 +129,13 @@ function ResumenTab({ data }: { data: AdminDashboardData }) {
   )
 }
 
+function verificationLabel(status: AdminDashboardData['users'][number]['verificationStatus']) {
+  if (status === 'VERIFIED') return { label: 'Verificado', className: 'bg-accent/15 text-accent' }
+  if (status === 'PENDING') return { label: 'Pendiente', className: 'bg-warning/15 text-warning' }
+  if (status === 'REJECTED') return { label: 'Rechazado', className: 'bg-destructive/10 text-destructive' }
+  return { label: 'Sin verificar', className: 'bg-muted text-muted-foreground' }
+}
+
 function UsuariosTab({ users, currentUserId }: { users: AdminDashboardData['users']; currentUserId: string }) {
   const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(null)
 
@@ -136,6 +149,7 @@ function UsuariosTab({ users, currentUserId }: { users: AdminDashboardData['user
               <th className="px-5 py-3 font-medium">RUT</th>
               <th className="px-5 py-3 font-medium">Espacios</th>
               <th className="px-5 py-3 font-medium">Reservas</th>
+              <th className="px-5 py-3 font-medium">Verificación</th>
               <th className="px-5 py-3 font-medium">Miembro desde</th>
             </tr>
           </thead>
@@ -161,6 +175,7 @@ function UsuariosTab({ users, currentUserId }: { users: AdminDashboardData['user
                 <td className="px-5 py-3 tabular-nums">{u.rut}</td>
                 <td className="px-5 py-3 tabular-nums">{u.spotsCount}</td>
                 <td className="px-5 py-3 tabular-nums">{u.reservationsCount}</td>
+                <td className="px-5 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${verificationLabel(u.verificationStatus).className}`}>{verificationLabel(u.verificationStatus).label}</span></td>
                 <td className="px-5 py-3 text-muted-foreground">{dateFormatter.format(u.createdAt)}</td>
               </tr>
             ))}
@@ -186,6 +201,7 @@ function UsuariosTab({ users, currentUserId }: { users: AdminDashboardData['user
               <div><p className="text-xs text-muted-foreground">Miembro desde</p><p>{dateFormatter.format(u.createdAt)}</p></div>
               <div><p className="text-xs text-muted-foreground">Espacios</p><p className="tabular-nums">{u.spotsCount}</p></div>
               <div><p className="text-xs text-muted-foreground">Reservas</p><p className="tabular-nums">{u.reservationsCount}</p></div>
+              <div><p className="text-xs text-muted-foreground">Verificación</p><span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${verificationLabel(u.verificationStatus).className}`}>{verificationLabel(u.verificationStatus).label}</span></div>
             </div>
             {u.id !== currentUserId && (
               <button onClick={() => setDeleting({ id: u.id, name: u.name })} aria-label={`Eliminar ${u.name}`} className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs font-medium text-muted-foreground hover:border-destructive hover:text-destructive">
@@ -494,6 +510,150 @@ function AdminCard({ admin, currentUserId }: { admin: AdminDashboardData['users'
   )
 }
 
+function reviewStatus(r: AdminDashboardData['reviews'][number]) {
+  if (r.status === 'APPEALED') return { label: 'Apelada', className: 'bg-warning/15 text-warning' }
+  if (r.status === 'REMOVED') return { label: 'Eliminada', className: 'bg-destructive/10 text-destructive' }
+  return { label: 'Activa', className: 'bg-accent/15 text-accent' }
+}
+
+function ReviewStars({ rating }: { rating: number }) {
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((value) => (
+        <Star key={value} className={`size-3.5 ${value <= rating ? 'fill-accent text-accent' : 'text-muted-foreground'}`} />
+      ))}
+    </span>
+  )
+}
+
+function ReviewAppealActions({ reviewId }: { reviewId: string }) {
+  const router = useRouter()
+  const [restoreState, restoreAction, restorePending] = useActionState(restoreReviewAdminAction, undefined)
+  const [rejectState, rejectAction, rejectPending] = useActionState(rejectAppealAdminAction, undefined)
+
+  useEffect(() => {
+    if ((restoreState && 'success' in restoreState) || (rejectState && 'success' in rejectState)) router.refresh()
+  }, [restoreState, rejectState, router])
+
+  const error = (restoreState && 'error' in restoreState && restoreState.error) || (rejectState && 'error' in rejectState && rejectState.error)
+
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <div className="flex flex-wrap gap-2">
+        <form action={restoreAction}>
+          <input type="hidden" name="reviewId" value={reviewId} />
+          <button type="submit" disabled={restorePending || rejectPending} className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 disabled:opacity-50">
+            Restaurar
+          </button>
+        </form>
+        <form action={rejectAction}>
+          <input type="hidden" name="reviewId" value={reviewId} />
+          <button type="submit" disabled={restorePending || rejectPending} className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-destructive hover:text-destructive disabled:opacity-50">
+            Mantener eliminada
+          </button>
+        </form>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+function ReviewsTab({ reviews }: { reviews: AdminDashboardData['reviews'] }) {
+  const [deleting, setDeleting] = useState<{ id: string; authorName: string } | null>(null)
+
+  return (
+    <div className="min-w-0 rounded-3xl border border-border bg-card">
+      <div className="hidden overflow-x-auto sm:block">
+        <table className="w-full min-w-[900px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="px-5 py-3 font-medium">Reseña</th>
+              <th className="px-5 py-3 font-medium">Espacio</th>
+              <th className="px-5 py-3 font-medium">Autor</th>
+              <th className="px-5 py-3 font-medium">Destinatario</th>
+              <th className="px-5 py-3 font-medium">Estado</th>
+              <th className="px-5 py-3 font-medium"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {reviews.map((r) => (
+              <tr key={r.id} className="border-b border-border align-top last:border-0">
+                <td className="px-5 py-3">
+                  <p className="text-xs text-muted-foreground">{r.direction === 'RENTER_TO_HOST' ? 'Arrendatario → anfitrión' : 'Anfitrión → arrendatario'}</p>
+                  <div className="mt-1"><ReviewStars rating={r.rating} /></div>
+                  {r.comment && <p className="mt-1 max-w-xs text-xs text-muted-foreground">{r.comment}</p>}
+                  {r.status === 'APPEALED' && r.appealMessage && <p className="mt-2 rounded-xl bg-warning/10 p-2 text-xs text-warning">Apelación: {r.appealMessage}</p>}
+                  {r.status === 'REMOVED' && r.removalReason && <p className="mt-2 text-xs text-muted-foreground">Motivo: {r.removalReason}</p>}
+                </td>
+                <td className="px-5 py-3 text-muted-foreground">{r.spotTitle}</td>
+                <td className="px-5 py-3">{r.authorName}</td>
+                <td className="px-5 py-3 text-muted-foreground">{r.targetName}</td>
+                <td className="px-5 py-3">
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${reviewStatus(r).className}`}>{reviewStatus(r).label}</span>
+                </td>
+                <td className="px-5 py-3">
+                  {r.status === 'ACTIVE' && (
+                    <button onClick={() => setDeleting({ id: r.id, authorName: r.authorName })} aria-label={`Eliminar reseña de ${r.authorName}`} className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-destructive hover:text-destructive">
+                      <Trash2 className="size-3.5" /> Eliminar
+                    </button>
+                  )}
+                  {r.status === 'APPEALED' && <ReviewAppealActions reviewId={r.id} />}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex flex-col divide-y divide-border sm:hidden">
+        {reviews.map((r) => (
+          <details key={r.id} className="group p-4">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="truncate font-medium">{r.authorName}</p>
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${reviewStatus(r).className}`}>{reviewStatus(r).label}</span>
+                </div>
+                <p className="truncate text-xs text-muted-foreground">{r.direction === 'RENTER_TO_HOST' ? 'Arrendatario → anfitrión' : 'Anfitrión → arrendatario'} · {r.spotTitle}</p>
+              </div>
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="mt-3 text-sm">
+              <div className="mb-2"><ReviewStars rating={r.rating} /></div>
+              {r.comment && <p className="text-xs text-muted-foreground">{r.comment}</p>}
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <div><p className="text-xs text-muted-foreground">Autor</p><p className="truncate">{r.authorName}</p></div>
+                <div><p className="text-xs text-muted-foreground">Destinatario</p><p className="truncate">{r.targetName}</p></div>
+              </div>
+              {r.status === 'APPEALED' && r.appealMessage && <p className="mt-2 rounded-xl bg-warning/10 p-2 text-xs text-warning">Apelación: {r.appealMessage}</p>}
+              {r.status === 'REMOVED' && r.removalReason && <p className="mt-2 text-xs text-muted-foreground">Motivo: {r.removalReason}</p>}
+              <div className="mt-3">
+                {r.status === 'ACTIVE' && (
+                  <button onClick={() => setDeleting({ id: r.id, authorName: r.authorName })} className="flex w-full items-center justify-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs font-medium text-muted-foreground hover:border-destructive hover:text-destructive">
+                    <Trash2 className="size-3.5" /> Eliminar reseña
+                  </button>
+                )}
+                {r.status === 'APPEALED' && <ReviewAppealActions reviewId={r.id} />}
+              </div>
+            </div>
+          </details>
+        ))}
+      </div>
+
+      {reviews.length === 0 && <p className="p-6 text-sm text-muted-foreground">Aún no hay reseñas.</p>}
+      {deleting && (
+        <AdminConfirmModal
+          title="¿Eliminar esta reseña?"
+          description={`Se ocultará la reseña de ${deleting.authorName}. El autor podrá apelar la decisión.`}
+          action={removeReviewAdminAction}
+          hiddenFields={{ reviewId: deleting.id }}
+          onClose={() => setDeleting(null)}
+        />
+      )}
+    </div>
+  )
+}
+
 type TaskStatus = AdminDashboardData['tasks'][number]['status']
 
 const TASK_COLUMNS: { status: TaskStatus; label: string }[] = [
@@ -501,6 +661,76 @@ const TASK_COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'IN_PROGRESS', label: 'En progreso' },
   { status: 'DONE', label: 'Hecho' },
 ]
+
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // clipboard API no disponible (http sin TLS, permisos, etc.) — el valor sigue visible para copiar a mano
+    }
+  }
+
+  return (
+    <button type="button" onClick={copy} className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2 text-left hover:bg-muted">
+      <span className="min-w-0">
+        <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>
+        <span className="block truncate font-mono text-sm">{value}</span>
+      </span>
+      {copied ? <Check className="size-4 shrink-0 text-accent" /> : <Copy className="size-4 shrink-0 text-muted-foreground" />}
+    </button>
+  )
+}
+
+/** Referencia rápida de credenciales del ambiente de Integración (sandbox) de Transbank —
+ *  públicas y documentadas por Transbank, no mueven dinero real. Evita tener que ir a buscarlas
+ *  a la documentación cada vez que se prueba un pago en el proyecto. */
+function TransbankTestDataCard() {
+  return (
+    <details className="group rounded-3xl border border-border bg-card p-5">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+        <div className="flex items-center gap-2"><CreditCard className="size-4 text-accent" /><h2 className="text-lg font-semibold">Datos de prueba — Webpay (Transbank)</h2></div>
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+      </summary>
+      <p className="mt-2 text-sm text-muted-foreground">Ambiente de Integración (sandbox) de Transbank — no es dinero real. Haz clic en un dato para copiarlo.</p>
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-dashed border-border p-3">
+          <p className="mb-2 text-xs font-medium text-accent">Tarjeta de crédito (aprobada)</p>
+          <div className="flex flex-col gap-2">
+            <CopyField label="Número" value="4051 8856 0044 6623" />
+            <CopyField label="CVV" value="123" />
+            <CopyField label="Vencimiento" value="Cualquier fecha futura" />
+          </div>
+        </div>
+        <div className="rounded-2xl border border-dashed border-border p-3">
+          <p className="mb-2 text-xs font-medium text-accent">Tarjeta de débito / Redcompra (aprobada)</p>
+          <div className="flex flex-col gap-2">
+            <CopyField label="Número" value="4051 8842 3993 7763" />
+            <p className="text-xs text-muted-foreground">Sin CVV ni fecha de vencimiento.</p>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-dashed border-border p-3">
+          <p className="mb-2 text-xs font-medium text-destructive">Mastercard (rechazada a propósito)</p>
+          <div className="flex flex-col gap-2">
+            <CopyField label="Número" value="5186 0595 5959 0568" />
+            <CopyField label="CVV" value="123" />
+          </div>
+        </div>
+        <div className="rounded-2xl border border-dashed border-border p-3">
+          <p className="mb-2 text-xs font-medium text-accent">Autenticación con el banco (RUT y clave)</p>
+          <div className="flex flex-col gap-2">
+            <CopyField label="RUT" value="11.111.111-1" />
+            <CopyField label="Clave" value="123" />
+          </div>
+        </div>
+      </div>
+    </details>
+  )
+}
 
 function TareasTab({ tasks, users }: { tasks: AdminDashboardData['tasks']; users: AdminDashboardData['users'] }) {
   const router = useRouter()
@@ -552,6 +782,8 @@ function TareasTab({ tasks, users }: { tasks: AdminDashboardData['tasks']; users
         </div>
         {boardError && <p className="mt-3 text-sm text-destructive">{boardError}</p>}
       </div>
+
+      <TransbankTestDataCard />
 
       {tasks.length === 0 && <p className="rounded-3xl border border-border bg-card p-6 text-sm text-muted-foreground">No hay tareas cargadas todavía.</p>}
 

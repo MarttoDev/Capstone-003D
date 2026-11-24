@@ -1,6 +1,7 @@
 import { unstable_cache } from 'next/cache'
 import { prisma } from '@/lib/db/prisma'
 import { subtractBusyRanges } from './free-ranges'
+import { getHostRatings } from '@/lib/reviews/queries'
 import type { Spot } from '@/lib/estacionando/types'
 
 const PLACEHOLDER_IMAGE = '/placeholder.svg'
@@ -25,11 +26,14 @@ export async function getPublishedSpots(): Promise<Spot[]> {
     },
     include: {
       parkingType: true,
+      owner: { select: { identityVerification: { select: { status: true } } } },
       availabilities: { where: { endTime: { gt: now } }, orderBy: { startTime: 'asc' } },
       reservations: { where: { status: 'CONFIRMED', endTime: { gt: now } }, select: { startTime: true, endTime: true } },
     },
     orderBy: { createdAt: 'desc' },
   })
+
+  const hostRatings = await getHostRatings([...new Set(spots.map((spot) => spot.ownerId))])
 
   const busyRanges = (spot: (typeof spots)[number]) => spot.reservations.map((r) => ({ start: r.startTime, end: r.endTime }))
 
@@ -59,6 +63,8 @@ export async function getPublishedSpots(): Promise<Spot[]> {
         latitude: spot.latitude,
         longitude: spot.longitude,
         availableWindows,
+        hostRating: hostRatings.get(spot.ownerId) ?? null,
+        hostVerified: spot.owner.identityVerification?.status === 'VERIFIED',
       }
     })
     .filter((spot) => spot.availableWindows.length > 0)
